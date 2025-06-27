@@ -1,0 +1,4 @@
+civic-digital-twins==0.1.0
+matplotlib==3.10.1
+streamlit==1.44.1
+streamlit-option-menu==0.4.0
