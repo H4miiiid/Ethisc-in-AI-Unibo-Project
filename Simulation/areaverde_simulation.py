@@ -1040,6 +1040,7 @@ def plot_map_graph(evals, index, label, time=None, range=None, function=sum):
     df_zones.set_index("id", inplace=True)
     gdf_zones = gpd.GeoDataFrame(df_zones, geometry='geometry')
     gdf_zones.set_crs(epsg=4326, inplace=True, allow_override=True)
+
     # TODO: Manage range
     fig = px.choropleth_map(
         gdf_zones, geojson=gdf_zones.geometry, locations=gdf_zones.index, color="value",
@@ -1054,31 +1055,132 @@ def plot_map_graph(evals, index, label, time=None, range=None, function=sum):
     return fig
 
 from typing import Literal
+import json
+
+def new_plot_statistical_area_map(
+    evals, index, time, function=sum, range_val=None, label="",
+    visualization_mode: Literal["raw", "fragility_weighted", "gender_weighted", "ethics_weighted"] = "raw"
+    ):
+    # # --- 1. Build the gdf_zones GeoPandaDataframe according to time ---
+    if time is None:
+        df_zones = pd.DataFrame.from_dict(
+            {k: function(evals[v].mean(axis=0)) for k, v in index.items()},
+            orient='index')
+    else:
+        if type(time) is tuple:
+            (start,end) = time
+        else:
+            (start,end) = (time, time+pd.Timedelta(seconds=15*60))
+        df_zones = pd.DataFrame.from_dict(
+            {k: function(itertools.compress(evals[v].mean(axis=0),
+                                            (to_number(start) <= TS.value) &
+                                            (TS.value < to_number(end)))) for k, v in index.items()},
+            orient='index')
+        
+    df_zones.index.name = 'id_zone'
+    df_zones.rename(columns={0: 'value'}, inplace=True)
+    df_zones = df_zones.merge(aree_gdf_AV, left_on='id_zone', right_on='id', how='left')
+    df_zones.set_index("id", inplace=True)
+    gdf_zones = gpd.GeoDataFrame(df_zones, geometry='geometry')
+    gdf_zones.set_crs(epsg=4326, inplace=True, allow_override=True)
+
+    # --- 2. Read the aree_statistiche_gdf GeoPandaDataframe ---
+    aree_statistiche_gdf = gpd.read_file("aree-statistiche.geojson")
+
+    if aree_statistiche_gdf.crs != gdf_zones.crs:
+        aree_statistiche_gdf.set_crs(epsg=4326, inplace=True, allow_override=True)
+
+    # --- 3. Calculate a new value for each zone in aree_statistiche_gdf ---
+    ## The process takes into account the intersection area with zones in gdf_zones
+
+    aree_statistiche_gdf['value'] = 0.0
+
+    for idx_d, row_d in aree_statistiche_gdf.iterrows():
+        geom_d = row_d.geometry
+        total_value = 0.0
+
+        overlapping = gdf_zones[gdf_zones.intersects(geom_d)]
+        for idx_z, row_z in overlapping.iterrows():
+            geom_z = row_z.geometry
+            val_z = row_z['value']
+            area_z = geom_z.area
+
+            inter_area = geom_d.intersection(geom_z).area
+
+            if area_z > 0:
+                coeff = inter_area / area_z
+                total_value += val_z * coeff
+
+        # Update estimated value directly
+        aree_statistiche_gdf.at[idx_d, 'value'] = total_value
+
+    subset = aree_statistiche_gdf.copy()
+    subset = subset.reset_index(drop=True)
+    subset['id'] = subset['codice_area_statistica'].astype(str)
+
+    # --- 4. Add Ethical Indicators and Weighting --- (Copied from Hamid's work)
+    gender = pd.read_parquet('gender.parquet')
+    fragility = pd.read_parquet('fragilita-2021.parquet')
+
+    total_residents = gender.groupby('area_statistica')['residenti'].sum()
+    female_residents = gender[gender['sesso'] == 'Femmine'].groupby('area_statistica')['residenti'].sum()
+    female_percentage = (female_residents / total_residents * 100).rename('female_percentage')
+    fragility_index = fragility.groupby('area_statistica')['frag_compl'].mean().rename('fragility_index')
+
+    ethics_df = pd.concat([female_percentage, fragility_index], axis=1).reset_index()
+
+    subset['area_statistica_norm'] = subset['area_statistica'].str.strip().str.upper()
+    ethics_df['area_statistica_norm'] = ethics_df['area_statistica'].str.strip().str.upper()
+    subset = subset.merge(ethics_df, on='area_statistica_norm', how='left')
+
+    # Normalize and handle missing data
+    subset['female_norm'] = subset['female_percentage'] / 100
+    subset['female_norm'] = subset['female_norm'].fillna(0)
+
+    subset['fragility_norm'] = subset['fragility_index'] / subset['fragility_index'].max()
+    subset['fragility_norm'] = subset['fragility_norm'].fillna(0)
+
+    # Composite ethics index
+    ethics_weights = {'female_norm': 0.5, 'fragility_norm': 0.5}
+    subset['ethics_index'] = sum(
+        subset[indicator] * weight for indicator, weight in ethics_weights.items()
+    )
+    subset['ethics_index'] /= sum(ethics_weights.values())  # Normalize to [0, 1]
+
+    # --- 7. Create geojson and choropleth plot ---
+    geojson = json.loads(subset.to_json()) # This creates a valid GeoJSON FeatureCollection (Added by Ali)
+    
+    fig = px.choropleth_mapbox(
+        subset,
+        geojson=geojson,
+        locations='id',
+        featureidkey="properties.id",   # <--- required
+        color="value",
+        hover_name="zona",
+        hover_data={"value": ":d", "female_percentage": ':.2f', "fragility_index": ':.2f'},
+        labels={'codice_area_statistica': 'Codice zona', 'value': 'Valore', 'female_percentage': '% Femmine', 'fragility_index': 'Indice Fragilità'},
+        center={"lat": 44.492, "lon": 11.341},
+        zoom=11.5,
+        mapbox_style="carto-positron",
+        opacity=0.5,
+        color_continuous_scale='Reds',
+    )
+
+    fig.update_layout(
+        autosize=False, width=800, height=600,
+        coloraxis_colorbar_title_text=None,
+    )
+    return fig
+
 
 def plot_statistical_area_map(
     subs, index, time, function=sum, range_val=None, label="",
     visualization_mode: Literal["raw", "fragility_weighted", "gender_weighted", "ethics_weighted"] = "raw"
-):
-    """
-    Plot a choropleth map of statistical areas based on simulation data,
-    optionally weighted by ethical indicators (gender, fragility).
-
-    Parameters:
-        subs (pd.DataFrame): Simulation results.
-        index (dict): Mapping from zone IDs to row indices in `subs`.
-        time (tuple or datetime.time): Time interval (start, end) or specific time.
-        function (callable): Aggregation function for values over time.
-        range_val (tuple): Min/max values for color normalization.
-        label (str): Label for the map (unused).
-        visualization_mode (str): How to weight the values.
-    
-    Returns:
-        fig (plotly.Figure): Choropleth map.
-    """
+    ):
 
     # --- 1. Aggregate simulation values per area ---
     metric_name = list(index.values())[0].name
-    function_to_use = sum if 'delta' in metric_name and 'traffic' not in metric_name else function
+    function_to_use = sum if 'delta' in metric_name and 'traffic' not in metric_name else function  #TODO What does this line do ?
 
     if isinstance(time, tuple):  # time is a (start, end) range
         start, end = time
@@ -1093,6 +1195,7 @@ def plot_statistical_area_map(
     else:  # time is a single time instance
         time_idx = time.hour * 4 + time.minute // 15
         area_values = {z: subs[index[z]][:, time_idx].sum() for z in index.keys()}
+    
 
     df = pd.DataFrame.from_dict(area_values, orient='index', columns=['value'])
     df['id'] = list(index.keys())
@@ -1128,6 +1231,7 @@ def plot_statistical_area_map(
     projected_crs = 'EPSG:32632'
     simulation_gdf_proj = simulation_gdf.to_crs(projected_crs)
     aree_statistiche_gdf_proj = aree_statistiche_gdf.to_crs(projected_crs)
+    # print(aree_statistiche_gdf)
 
     # Compute intersection areas
     overlaps = gpd.overlay(simulation_gdf_proj, aree_statistiche_gdf_proj, how='intersection')
