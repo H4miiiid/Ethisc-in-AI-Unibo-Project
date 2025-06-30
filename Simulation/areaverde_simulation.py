@@ -18,6 +18,9 @@ from itertools import combinations
 from dt_model import Index, ContextVariable, UniformDistIndex
 from sympy import Piecewise, Function, lambdify, exp
 
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from functions.ethical_cost import ethical_cost_function
 
 ### VARIABLES
