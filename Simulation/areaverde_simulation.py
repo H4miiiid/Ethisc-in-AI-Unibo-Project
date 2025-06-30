@@ -1058,9 +1058,7 @@ from typing import Literal
 import json
 
 def new_plot_statistical_area_map(
-    evals, index, time, function=sum, range_val=None, label="",
-    visualization_mode: Literal["raw", "fragility_weighted", "gender_weighted", "ethics_weighted"] = "raw"
-    ):
+    evals, index, time, function=sum, range_val=None, label=""):
     # # --- 1. Build the gdf_zones GeoPandaDataframe according to time ---
     if time is None:
         df_zones = pd.DataFrame.from_dict(
@@ -1134,18 +1132,39 @@ def new_plot_statistical_area_map(
     subset = subset.merge(ethics_df, on='area_statistica_norm', how='left')
 
     # Normalize and handle missing data
-    subset['female_norm'] = subset['female_percentage'] / 100
-    subset['female_norm'] = subset['female_norm'].fillna(0)
+    subset['female_percentage'] = subset['female_percentage'].fillna(0)
+    subset['fragility_index'] = subset['fragility_index'].fillna(0)
 
-    subset['fragility_norm'] = subset['fragility_index'] / subset['fragility_index'].max()
-    subset['fragility_norm'] = subset['fragility_norm'].fillna(0)
+    # ----5. Prepare parameters for ethical_cost_function
+    ethical_params = {
+        'school_run_morning': (7, 9),
+        'school_run_afternoon': (13, 15),
+        'school_run_late': (16, 18),
+        'school_run_female_reduction': 0.1,
+        'fragility_reduction_base': 0.2,
+        'fragility_index_max': subset['fragility_index'].max() if subset['fragility_index'].max() > 0 else 1.0,
+        'fragility_sensitive_hours': (10, 15),
+    }
 
-    # Composite ethics index
-    ethics_weights = {'female_norm': 0.5, 'fragility_norm': 0.5}
-    subset['ethics_index'] = sum(
-        subset[indicator] * weight for indicator, weight in ethics_weights.items()
+    # Extract time_of_day float from time
+    time_of_day = None
+    if time is not None:
+        if isinstance(time, tuple):
+            time_of_day = time[0].hour + time[0].minute / 60.0
+        else:
+            time_of_day = time.hour + time.minute / 60.0
+
+    # ----6. Apply ethical adjustments to zone values
+    subset['value'] = subset.apply(
+        lambda row: ethical_cost_function(
+            raw_value = row['value'],
+            female_percentage = row['female_percentage'],
+            fragility_index = row['fragility_index'],
+            time_of_day = time_of_day,
+            params = ethical_params
+        ),
+        axis=1
     )
-    subset['ethics_index'] /= sum(ethics_weights.values())  # Normalize to [0, 1]
 
     # --- 7. Create geojson and choropleth plot ---
     geojson = json.loads(subset.to_json()) # This creates a valid GeoJSON FeatureCollection (Added by Ali)
