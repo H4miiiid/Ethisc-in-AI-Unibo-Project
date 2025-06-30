@@ -62,3 +62,21 @@ def ethical_cost_function(
     value *= fragility_factor
 
     return value
+
+
+def classify_fragility_emission_weight(fragility_score):
+    """
+    Returns a weight multiplier for emissions based on economic fragility.
+    """
+    if 81.0 <= fragility_score < 89:
+        return 1.00  # Low
+    elif 89 <= fragility_score < 97:
+        return 1.10  # Medium-Low
+    elif 97 <= fragility_score < 105:
+        return 1.20  # Medium
+    elif 105 <= fragility_score < 113:
+        return 1.30  # Medium-High
+    elif 113 <= fragility_score <= 120:
+        return 1.40  # High
+    else:
+        return 1.00  # Fallback default

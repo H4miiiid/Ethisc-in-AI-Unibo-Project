@@ -21,7 +21,7 @@ from sympy import Piecewise, Function, lambdify, exp
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from functions.ethical_cost import ethical_cost_function
+from functions.ethical_cost import ethical_cost_function, classify_fragility_emission_weight
 
 ### VARIABLES
 DECISION_STRATEGY = "parallel" ## choices are taken sequentially or parallely? use values in ['sequential', 'parallel']
@@ -1160,17 +1160,30 @@ def new_plot_statistical_area_map(
             time_of_day = time.hour + time.minute / 60.0
 
     # ----6. Apply ethical adjustments to zone values
-    subset['value'] = subset.apply(
-        lambda row: ethical_cost_function(
-            raw_value = row['value'],
-            female_percentage = row['female_percentage'],
-            fragility_index = row['fragility_index'],
-            time_of_day = time_of_day,
-            params = ethical_params
-        ),
-        axis=1
-    )
-
+    if isinstance(index, str) and "emissions" in index.lower():
+        # Emissions: full ethical adjustment + fragility multiplier
+        subset['value'] = subset.apply(
+            lambda row: ethical_cost_function(
+                raw_value = row['value'],
+                female_percentage = row['female_percentage'],
+                fragility_index = row['fragility_index'],
+                time_of_day = time_of_day,
+                params = ethical_params
+            ) * classify_fragility_emission_weight(row['fragility_index']),
+            axis=1
+        )
+    else:
+        # All other types (inflow, traffic...) use standard ethical cost
+        subset['value'] = subset.apply(
+            lambda row: ethical_cost_function(
+                raw_value = row['value'],
+                female_percentage = row['female_percentage'],
+                fragility_index = row['fragility_index'],
+                time_of_day = time_of_day,
+                params = ethical_params
+            ),
+            axis=1
+        )
     # --- 7. Create geojson and choropleth plot ---
     geojson = json.loads(subset.to_json()) # This creates a valid GeoJSON FeatureCollection (Added by Ali)
     
