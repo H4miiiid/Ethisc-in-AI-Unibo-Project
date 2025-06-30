@@ -200,15 +200,19 @@ if selected == "Home":
         else:
             subs = st.session_state['__subs__']
 
-        st.subheader("Veicoli in ingresso")
+        header_one = "Veicoli in ingresso"
+        header_two = "Traffico"
+        header_three = "Emissioni"
+        sub_header = "Based on Feminine and Fragility indexes"
         if ZONE == 0:
+            st.subheader(header_one)
             fig = plot_field_graph(subs[m.I_modified_inflow],
                                    horizontal_label="Ora", vertical_label="Flusso in ingresso [veicoli/ora]",
                                    vertical_formatter=FuncFormatter(lambda x, _: f"{int(x * 12)}"),
                                    reference_line=subs[m.TS_inflow][0])
             st.pyplot(fig, use_container_width=False, clear_figure=True)
         elif ZONE == -1:    
- 
+            st.subheader(header_one)
             if DELTA:
                 fig = plot_map_graph(subs, m.I_delta_inflow_zone, time=TIME,
                                      label="Differenza flusso in ingresso [veicoli/ora]")
@@ -216,6 +220,7 @@ if selected == "Home":
                 fig = plot_map_graph(subs, m.I_modified_inflow_zone, time=TIME, range=(0, None), label="Flusso")
             st.plotly_chart(fig, use_container_width=False)
         elif ZONE == -2:
+            st.subheader(f'{header_one} - {sub_header}')
             if DELTA:
                 fig = new_plot_statistical_area_map(
                     subs, m.I_delta_inflow_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
@@ -226,19 +231,21 @@ if selected == "Home":
                     )
             st.plotly_chart(fig, use_container_width=False, config={"scrollZoom": True})
         else:
+            st.subheader(header_one)
             fig = plot_multifield_graph(subs, m.I_modified_inflow_zone, ZONE,
                                         horizontal_label="Ora", vertical_label="Flusso in ingresso [veicoli/ora]",
                                         vertical_formatter=FuncFormatter(lambda x, _: f"{int(x * 12)}"),
                                         reference_index=m.TS_inflow_zone)
             st.pyplot(fig, use_container_width=False, clear_figure=True)
 
-        st.subheader("Traffico")
         if ZONE == 0:
+            st.subheader(header_two)
             fig = plot_field_graph(subs[m.I_modified_traffic],
                                    horizontal_label="Ora", vertical_label="Traffico [veicoli circolanti]",
                                    reference_line=subs[m.I_traffic][0])
             st.pyplot(fig, use_container_width=False, clear_figure=True)
         elif ZONE == -1:
+            st.subheader(header_two)
             if DELTA:
                 fig = plot_map_graph(subs, m.I_delta_traffic_zone, time=TIME,
                                      label="Differenza traffico [delta media veicoli circolanti]",
@@ -248,6 +255,7 @@ if selected == "Home":
                                      label="Traffico [max veicoli circolanti]", range=(0, None), function=max)
             st.plotly_chart(fig, use_container_width=False)
         elif ZONE == -2:
+            st.subheader(f'{header_two} - {sub_header}')
             if DELTA:
                 fig = new_plot_statistical_area_map(
                     subs, m.I_delta_traffic_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
@@ -258,19 +266,21 @@ if selected == "Home":
                     )
             st.plotly_chart(fig, use_container_width= False, config={"scrollZoom": True})
         else:
+            st.subheader(header_two)
             fig = plot_multifield_graph(subs, m.I_modified_traffic_zone, ZONE,
                                         horizontal_label="Ora", vertical_label="Traffico [veicoli circolanti]",
                                         reference_index=m.TS_traffic_zone)
             st.pyplot(fig, use_container_width=False, clear_figure=True)
 
-        st.subheader("Emissioni")
         if ZONE == 0:
+            st.subheader(header_three)
             fig = plot_field_graph(subs[m.I_modified_emissions],
                                    horizontal_label="Ora", vertical_label="Emissioni [NOx gr/ora]",
                                    vertical_formatter=FuncFormatter(lambda x, _: f"{int(x * 12)}"),
                                    reference_line=subs[m.I_emissions][0])
             st.pyplot(fig, use_container_width=False, clear_figure=True)
         elif ZONE == -1:
+            st.subheader(header_three)
             if DELTA:
                 fig = plot_map_graph(subs, m.I_delta_emissions_zone, time=TIME,
                                      label="Differenza emissioni [NOx gr/giorno]")
@@ -279,6 +289,7 @@ if selected == "Home":
                                      label="Emissioni [NOx gr/giorno]", range=(0, None))
             st.plotly_chart(fig, use_container_width=False)
         elif ZONE == -2:
+            st.subheader(f'{header_three} - {sub_header}')
             if DELTA:
                 fig = new_plot_statistical_area_map(
                     subs, m.I_delta_emissions_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
@@ -289,6 +300,7 @@ if selected == "Home":
                     )
             st.plotly_chart(fig, use_container_width= False, config={"scrollZoom": True})
         else:
+            st.subheader(header_three)
             fig = plot_multifield_graph(subs, m.I_modified_emissions_zone, ZONE,
                                         horizontal_label="Ora", vertical_label="Emissioni [NOx gr/ora]",
                                         vertical_formatter=FuncFormatter(lambda x, _: f"{int(x * 12)}"),
