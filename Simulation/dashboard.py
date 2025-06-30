@@ -147,17 +147,6 @@ if selected == "Home":
                                      format="HH:mm")
                 delta = st.checkbox("Mostra differenze")
 
-                visualization_mode = st.selectbox(
-                    "Modalità di ponderazione etica",
-                    options=["raw", "fragility_weighted", "gender_weighted", "ethics_weighted"],
-                    format_func=lambda x: {
-                        "raw": "Normale (non pesato)",
-                        "fragility_weighted": "Pesato per fragilità",
-                        "gender_weighted": "Pesato per % donne",
-                        "ethics_weighted": "Pesato per entrambi (fragilità + % donne)"
-                    }[x],
-                    index=0
-                )
             match viewtype:
                 case "Area Verde":
                     ZONE = 0
@@ -229,13 +218,11 @@ if selected == "Home":
         elif ZONE == -2:
             if DELTA:
                 fig = new_plot_statistical_area_map(
-                    subs, m.I_delta_inflow_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]",
-                    visualization_mode=visualization_mode
+                    subs, m.I_delta_inflow_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
                     )
             else:
                 fig = new_plot_statistical_area_map(
-                    subs, m.I_modified_inflow_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]",
-                    visualization_mode= visualization_mode
+                    subs, m.I_modified_inflow_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
                     )
             st.plotly_chart(fig, use_container_width=False, config={"scrollZoom": True})
         else:
@@ -263,12 +250,11 @@ if selected == "Home":
         elif ZONE == -2:
             if DELTA:
                 fig = new_plot_statistical_area_map(
-                    subs, m.I_delta_traffic_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]",
-                    visualization_mode=visualization_mode
+                    subs, m.I_delta_traffic_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
                     )
             else:
                 fig = new_plot_statistical_area_map(
-                    subs, m.I_modified_traffic_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]", visualization_mode=visualization_mode
+                    subs, m.I_modified_traffic_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
                     )
             st.plotly_chart(fig, use_container_width= False, config={"scrollZoom": True})
         else:
@@ -295,13 +281,11 @@ if selected == "Home":
         elif ZONE == -2:
             if DELTA:
                 fig = new_plot_statistical_area_map(
-                    subs, m.I_delta_emissions_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]",
-                    visualization_mode=visualization_mode
+                    subs, m.I_delta_emissions_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
                     )
             else:
                 fig = new_plot_statistical_area_map(
-                    subs, m.I_modified_emissions_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]",
-                    visualization_mode=visualization_mode
+                    subs, m.I_modified_emissions_zone, time=TIME, label="Differenza flusso in ingresso [veicoli/ora]"
                     )
             st.plotly_chart(fig, use_container_width= False, config={"scrollZoom": True})
         else:
