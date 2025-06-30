@@ -18,6 +18,8 @@ from itertools import combinations
 from dt_model import Index, ContextVariable, UniformDistIndex
 from sympy import Piecewise, Function, lambdify, exp
 
+from functions.ethical_cost import ethical_cost_function
+
 ### VARIABLES
 DECISION_STRATEGY = "parallel" ## choices are taken sequentially or parallely? use values in ['sequential', 'parallel']
 TIME_SHIFT_STRATEGY = "flexible" ## choice: flexibly shift their activity time (earlier or later), or fixed and predetermined time shift. use values in ['fixed', 'flexible']
