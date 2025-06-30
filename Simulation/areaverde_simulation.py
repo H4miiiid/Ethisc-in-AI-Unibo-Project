@@ -1180,9 +1180,18 @@ def new_plot_statistical_area_map(
         locations='id',
         featureidkey="properties.id",   # <--- required
         color="value",
-        hover_name="zona",
-        hover_data={"value": ":d", "female_percentage": ':.2f', "fragility_index": ':.2f'},
-        labels={'codice_area_statistica': 'Codice zona', 'value': 'Valore', 'female_percentage': '% Femmine', 'fragility_index': 'Indice Fragilità'},
+        hover_name="area_statistica_norm",
+        hover_data={
+            "value": ":d",
+            "female_percentage": ':.2f',
+            "fragility_index": ':.2f'
+            },
+        labels={
+            'codice_area_statistica': 'Codice zona',
+            'value': 'Valore',
+            'female_percentage': '% Femmine',
+            'fragility_index': 'Indice Fragilità'
+            },
         center={"lat": 44.492, "lon": 11.341},
         zoom=11.5,
         mapbox_style="carto-positron",
