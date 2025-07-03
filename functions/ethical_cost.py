@@ -1,16 +1,17 @@
 from typing import Optional, Dict
 import math
 import logging
+
+# Importing constants for ethical cost adjustments
 from .constants import (
     SCHOOL_RUN_MORNING,
     SCHOOL_RUN_AFTERNOON,
     SCHOOL_RUN_LATE,
     FRAGILITY_SENSITIVE_HOURS,
-    SCHOOL_RUN_WEEKEND,
-    WEEKEND_FRAGILITY_SENSITIVE_HOURS,
     FRAGILITY_INDEX_MIN,
     FRAGILITY_INDEX_MAX,
     FRAGILITY_CATEGORIES,
+    FRAGILITY_WEIGHTS
 )
 
 logger = logging.getLogger(__name__)
@@ -20,7 +21,6 @@ def ethical_cost_function(
     female_percentage: float,
     fragility_index: float,
     time_of_day: Optional[float] = None,  # 0–24
-    is_weekend: bool = False,
     params: Optional[Dict] = None
 
 ) -> float:
@@ -80,8 +80,6 @@ def ethical_cost_function(
         raise ValueError("fragility_index must be >= 0")
     if time_of_day is not None and not (0 <= time_of_day < 24):
         raise ValueError("time_of_day must be in [0, 24)")
-    if not isinstance(is_weekend, bool):
-        raise TypeError("is_weekend must be a boolean")
 
     value = raw_value
 
@@ -97,21 +95,18 @@ def ethical_cost_function(
 
     # --- SCHOOL RUN FEMALE ADJUSTMENT (time-specific) ---
     if time_of_day is not None:
-        weekend_flag = params.get('is_weekend', is_weekend)
-        school_run_reduction = params.get('school_run_female_reduction', 0.1)  # 10% max
 
-        if weekend_flag:
-            weekend_run = params.get('school_run_weekend', SCHOOL_RUN_WEEKEND)
-            in_window = weekend_run[0] <= time_of_day < weekend_run[1]
-        else:
-            morning_school_run = params.get('school_run_morning', SCHOOL_RUN_MORNING)
-            afternoon_pickup = params.get('school_run_afternoon', SCHOOL_RUN_AFTERNOON)
-            late_pickup = params.get('school_run_late', SCHOOL_RUN_LATE)
-            in_window = (
-                morning_school_run[0] <= time_of_day < morning_school_run[1]
-                or afternoon_pickup[0] <= time_of_day < afternoon_pickup[1]
-                or late_pickup[0] <= time_of_day < late_pickup[1]
-            )
+        school_run_reduction = params.get('school_run_female_reduction', 0.1)  # 10% max
+        
+        morning_school_run = params.get('school_run_morning', SCHOOL_RUN_MORNING)
+        afternoon_pickup = params.get('school_run_afternoon', SCHOOL_RUN_AFTERNOON)
+        late_pickup = params.get('school_run_late', SCHOOL_RUN_LATE)
+        
+        in_window = (
+            morning_school_run[0] <= time_of_day < morning_school_run[1]
+            or afternoon_pickup[0] <= time_of_day < afternoon_pickup[1]
+            or late_pickup[0] <= time_of_day < late_pickup[1]
+        )
 
         if in_window:
             school_run_factor = 1 - school_run_reduction * logistic_smoothing(female_pct)
@@ -129,7 +124,7 @@ def ethical_cost_function(
     fragility_max = params.get('fragility_index_max', FRAGILITY_INDEX_MAX)
     fragility_span = max(1e-6, fragility_max - fragility_min)
 
-    # Clamp fragility index
+    # Clamping the fragility index
     fragility_ratio = max(
         0.0,
         min((fragility_index - fragility_min) / fragility_span, 1.0),
@@ -144,14 +139,8 @@ def ethical_cost_function(
     logger.debug("Fragility logistic effect: %.3f", ratio_effect)
 
     if time_of_day is not None:
-        weekend_flag = params.get('is_weekend', is_weekend)
-        if weekend_flag:
-            off_peak = params.get(
-                'weekend_fragility_sensitive_hours',
-                WEEKEND_FRAGILITY_SENSITIVE_HOURS,
-            )
-        else:
-            off_peak = params.get('fragility_sensitive_hours', FRAGILITY_SENSITIVE_HOURS)
+        
+        off_peak = params.get('fragility_sensitive_hours', FRAGILITY_SENSITIVE_HOURS)
         early_or_late = time_of_day < 7 or time_of_day >= 20
 
         if off_peak[0] <= time_of_day < off_peak[1]:
@@ -180,8 +169,24 @@ def ethical_cost_function(
         logger.debug("Fragility adjustment without time (factor %.3f)", fragility_factor)
 
     value *= fragility_factor
+    logger.debug("Final value after fragility adjustment: %f", value)
 
-    logger.debug("Final adjusted value: %f", value)
+    # --- ADJUST FOR MOBILITY (smoothed sigmoid scaling) ---
+    if params.get("adjust_for_mobility", False):  # or pass this as an argument if preferred
+        vehicle_penalty_factor = params.get("fragility_mobility_penalty", 0.4)
+        mobility_scaling = 1 - vehicle_penalty_factor * math.tanh(2 * fragility_ratio)
+        
+        logger.debug(
+            "Mobility penalty adjustment: tanh(2 * %.2f) = %.3f → scaling factor: %.3f",
+            fragility_ratio,
+            math.tanh(2 * fragility_ratio),
+            mobility_scaling
+        )
+
+        value *= mobility_scaling
+        logger.debug("Value after mobility adjustment: %f", value)
+
+# Return final adjusted value
     return value
 
 
@@ -191,14 +196,14 @@ def classify_fragility_emission_weight(fragility_score):
     """
     thresholds = FRAGILITY_CATEGORIES
     if thresholds[0] <= fragility_score < thresholds[1]:
-        return 1.00  # Low
+        return FRAGILITY_WEIGHTS["LOW"]
     elif thresholds[1] <= fragility_score < thresholds[2]:
-        return 1.10  # Medium-Low
+        return FRAGILITY_WEIGHTS["Medium-Low"]
     elif thresholds[2] <= fragility_score < thresholds[3]:
-        return 1.20  # Medium
+        return FRAGILITY_WEIGHTS["Medium"]
     elif thresholds[3] <= fragility_score < thresholds[4]:
-        return 1.30  # Medium-High
+        return FRAGILITY_WEIGHTS["Medium-High"]
     elif thresholds[4] <= fragility_score <= thresholds[5]:
-        return 1.40  # High
+        return FRAGILITY_WEIGHTS["High"] 
     else:
-        return 1.00  # Fallback default
+        return FRAGILITY_WEIGHTS["Fallback-Default"]  # Default weight for out-of-range scores
