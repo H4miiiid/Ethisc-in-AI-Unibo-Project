@@ -1,66 +1,187 @@
 from typing import Optional, Dict
+import math
+import logging
+from .constants import (
+    SCHOOL_RUN_MORNING,
+    SCHOOL_RUN_AFTERNOON,
+    SCHOOL_RUN_LATE,
+    FRAGILITY_SENSITIVE_HOURS,
+    SCHOOL_RUN_WEEKEND,
+    WEEKEND_FRAGILITY_SENSITIVE_HOURS,
+    FRAGILITY_INDEX_MIN,
+    FRAGILITY_INDEX_MAX,
+    FRAGILITY_CATEGORIES,
+)
+
+logger = logging.getLogger(__name__)
 
 def ethical_cost_function(
     raw_value: float,
     female_percentage: float,
     fragility_index: float,
     time_of_day: Optional[float] = None,  # 0–24
+    is_weekend: bool = False,
     params: Optional[Dict] = None
+
 ) -> float:
+    """Adjust simulator value using ethical considerations.
+
+    The female share and fragility index are smoothed through logistic
+    curves so their influence grows gradually instead of linearly. Time
+    windows for school runs and fragility sensitivity have weekday and
+    weekend variants defined in :mod:`constants`.
+
+    Parameters
+    ----------
+    raw_value : float
+        Original simulator value.
+    female_percentage : float
+        Share of female population in percent (``0``-``100``).
+    fragility_index : float
+        Economic fragility score. Typical range is
+        ``[FRAGILITY_INDEX_MIN, FRAGILITY_INDEX_MAX]``.
+    time_of_day : float, optional
+        Hour of day in the ``[0, 24)`` range. ``None`` disables
+        time-based adjustments.
+    is_weekend : bool, optional
+        If ``True``, weekend time windows (``SCHOOL_RUN_WEEKEND`` and
+        ``WEEKEND_FRAGILITY_SENSITIVE_HOURS``) are used. Defaults to ``False``.
+    params : dict, optional
+        Configuration overrides for the adjustment factors.
+
+    Returns
+    -------
+    float
+        Adjusted value after applying ethical coefficients.
     """
-    Adjust simulator value using ethical considerations: gender, fragility, and time.
-    Applies a base adjustment for female population and fragility,
-    and extra adjustment for time-sensitive contexts (e.g., school runs, off-peak).
+
     """
+    The logistic_smoothing function maps a value in the range [0, 1] to another value in [0, 1] using a logistic (sigmoid-like) curve —
+    but with tuned steepness and normalization to make the curve more centered and bounded within [0, 1].
+    """
+
+    def logistic_smoothing(x: float, k: float = 6.0) -> float:
+        """Map ``x`` in ``[0, 1]`` to ``[0, 1]`` using a logistic curve."""
+        x = max(0.0, min(x, 1.0))
+        exp_neg = math.exp(-k * (x - 0.5))
+        min_v = 1 / (1 + math.exp(k / 2))
+        max_v = 1 / (1 + math.exp(-k / 2))
+        logistic = 1 / (1 + exp_neg)
+        return (logistic - min_v) / (max_v - min_v)
 
     if params is None:
         params = {}
+
+    logger.debug("Initial value: %f", raw_value)
+
+    if not 0 <= female_percentage <= 100:
+        raise ValueError("female_percentage must be between 0 and 100")
+    if fragility_index < 0:
+        raise ValueError("fragility_index must be >= 0")
+    if time_of_day is not None and not (0 <= time_of_day < 24):
+        raise ValueError("time_of_day must be in [0, 24)")
+    if not isinstance(is_weekend, bool):
+        raise TypeError("is_weekend must be a boolean")
 
     value = raw_value
 
     # Normalize female percentage
     female_pct = max(0.0, min(female_percentage / 100, 1.0))  # Clamp between 0 and 1
+    logger.debug("Normalized female percentage: %.3f", female_pct)
 
     # --- BASE FEMALE ADJUSTMENT (applies at all times) ---
     female_base_reduction = params.get('female_reduction_base', 0.05)  # Default: 5% max
-    female_factor = 1 - (female_base_reduction * female_pct)
+    female_factor = 1 - female_base_reduction * logistic_smoothing(female_pct)
     value *= female_factor
+    logger.debug("After base female adjustment (factor %.3f): %f", female_factor, value)
 
     # --- SCHOOL RUN FEMALE ADJUSTMENT (time-specific) ---
     if time_of_day is not None:
-        morning_school_run = params.get('school_run_morning', (7, 9))
-        afternoon_pickup = params.get('school_run_afternoon', (13, 15))
-        late_pickup = params.get('school_run_late', (16, 18))
+        weekend_flag = params.get('is_weekend', is_weekend)
         school_run_reduction = params.get('school_run_female_reduction', 0.1)  # 10% max
 
-        if (morning_school_run[0] <= time_of_day < morning_school_run[1] or
-            afternoon_pickup[0] <= time_of_day < afternoon_pickup[1] or
-            late_pickup[0] <= time_of_day < late_pickup[1]):
-            school_run_factor = 1 - (school_run_reduction * female_pct)
+        if weekend_flag:
+            weekend_run = params.get('school_run_weekend', SCHOOL_RUN_WEEKEND)
+            in_window = weekend_run[0] <= time_of_day < weekend_run[1]
+        else:
+            morning_school_run = params.get('school_run_morning', SCHOOL_RUN_MORNING)
+            afternoon_pickup = params.get('school_run_afternoon', SCHOOL_RUN_AFTERNOON)
+            late_pickup = params.get('school_run_late', SCHOOL_RUN_LATE)
+            in_window = (
+                morning_school_run[0] <= time_of_day < morning_school_run[1]
+                or afternoon_pickup[0] <= time_of_day < afternoon_pickup[1]
+                or late_pickup[0] <= time_of_day < late_pickup[1]
+            )
+
+        if in_window:
+            school_run_factor = 1 - school_run_reduction * logistic_smoothing(female_pct)
             value *= school_run_factor
+            logger.debug(
+                "Applied school run adjustment (factor %.3f) at %.2f h: %f",
+                school_run_factor,
+                time_of_day,
+                value,
+            )
 
     # --- FRAGILITY ADJUSTMENT ---
     fragility_base = params.get('fragility_reduction_base', 0.2)
-    fragility_max = max(1e-6, params.get('fragility_index_max', 1.0))  # Prevent divide by zero
+    fragility_min = params.get('fragility_index_min', FRAGILITY_INDEX_MIN)
+    fragility_max = params.get('fragility_index_max', FRAGILITY_INDEX_MAX)
+    fragility_span = max(1e-6, fragility_max - fragility_min)
 
     # Clamp fragility index
-    fragility_ratio = max(0.0, min(fragility_index / fragility_max, 1.0))
+    fragility_ratio = max(
+        0.0,
+        min((fragility_index - fragility_min) / fragility_span, 1.0),
+    )
+    logger.debug(
+        "Fragility ratio after clamping: %.3f (index %.2f)",
+        fragility_ratio,
+        fragility_index,
+    )
+
+    ratio_effect = logistic_smoothing(fragility_ratio)
+    logger.debug("Fragility logistic effect: %.3f", ratio_effect)
 
     if time_of_day is not None:
-        off_peak = params.get('fragility_sensitive_hours', (10, 15))
+        weekend_flag = params.get('is_weekend', is_weekend)
+        if weekend_flag:
+            off_peak = params.get(
+                'weekend_fragility_sensitive_hours',
+                WEEKEND_FRAGILITY_SENSITIVE_HOURS,
+            )
+        else:
+            off_peak = params.get('fragility_sensitive_hours', FRAGILITY_SENSITIVE_HOURS)
         early_or_late = time_of_day < 7 or time_of_day >= 20
 
         if off_peak[0] <= time_of_day < off_peak[1]:
-            fragility_factor = 1 - (fragility_base * fragility_ratio * 1.2)
+            fragility_factor = 1 - (fragility_base * 1.2) * ratio_effect
+            logger.debug(
+                "Off-peak fragility adjustment (factor %.3f) at %.2f h",
+                fragility_factor,
+                time_of_day,
+            )
         elif early_or_late:
-            fragility_factor = 1 - (fragility_base * fragility_ratio * 0.7)
+            fragility_factor = 1 - (fragility_base * 0.7) * ratio_effect
+            logger.debug(
+                "Early/late fragility adjustment (factor %.3f) at %.2f h",
+                fragility_factor,
+                time_of_day,
+            )
         else:
-            fragility_factor = 1 - (fragility_base * fragility_ratio)
+            fragility_factor = 1 - fragility_base * ratio_effect
+            logger.debug(
+                "Daytime fragility adjustment (factor %.3f) at %.2f h",
+                fragility_factor,
+                time_of_day,
+            )
     else:
-        fragility_factor = 1 - (fragility_base * fragility_ratio)
+        fragility_factor = 1 - fragility_base * ratio_effect
+        logger.debug("Fragility adjustment without time (factor %.3f)", fragility_factor)
 
     value *= fragility_factor
 
+    logger.debug("Final adjusted value: %f", value)
     return value
 
 
@@ -68,15 +189,16 @@ def classify_fragility_emission_weight(fragility_score):
     """
     Returns a weight multiplier for emissions based on economic fragility.
     """
-    if 81.0 <= fragility_score < 89:
+    thresholds = FRAGILITY_CATEGORIES
+    if thresholds[0] <= fragility_score < thresholds[1]:
         return 1.00  # Low
-    elif 89 <= fragility_score < 97:
+    elif thresholds[1] <= fragility_score < thresholds[2]:
         return 1.10  # Medium-Low
-    elif 97 <= fragility_score < 105:
+    elif thresholds[2] <= fragility_score < thresholds[3]:
         return 1.20  # Medium
-    elif 105 <= fragility_score < 113:
+    elif thresholds[3] <= fragility_score < thresholds[4]:
         return 1.30  # Medium-High
-    elif 113 <= fragility_score <= 120:
+    elif thresholds[4] <= fragility_score <= thresholds[5]:
         return 1.40  # High
     else:
         return 1.00  # Fallback default
